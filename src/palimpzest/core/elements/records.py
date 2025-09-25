@@ -1,0 +1,475 @@
+from __future__ import annotations
+
+import json
+from collections.abc import Generator
+from typing import Any
+
+import pandas as pd
+from pydantic import BaseModel
+from pydantic.fields import FieldInfo
+
+from palimpzest.core.data import context
+from palimpzest.core.lib.schemas import (
+    AudioBase64,
+    AudioFilepath,
+    ImageBase64,
+    ImageFilepath,
+    ImageURL,
+    create_schema_from_df,
+    project,
+    union_schemas,
+)
+from palimpzest.core.models import ExecutionStats, PlanStats, RecordOpStats
+from palimpzest.utils.hash_helpers import hash_for_id, hash_for_serialized_dict
+
+
+class DataRecord:
+    """A DataRecord is a single record of data matching some schema defined by a BaseModel."""
+
+    def __init__(
+        self,
+        schema: BaseModel,
+        source_indices: str | list[str],
+        parent_ids: str | list[str] | None = None,
+        cardinality_idx: int | None = None,
+    ):
+        # check that source_indices are provided
+        assert source_indices is not None, "Every DataRecord must be constructed with source index (or indices)"
+
+        # normalize to list[str]
+        if not isinstance(source_indices, list):
+            source_indices = [source_indices]
+
+        # normalize to list[str]
+        if isinstance(parent_ids, str):
+            parent_ids = [parent_ids]
+
+        # schema for the data record
+        self.schema = schema
+
+        # mapping from field names to Field objects; effectively a mapping from a field name to its type        
+        self.field_types: dict[str, FieldInfo] = schema.model_fields
+
+        # mapping from field names to their values
+        self.field_values: dict[str, Any] = {}
+
+        # the index in the root Dataset from which this DataRecord is derived;
+        # each source index takes the form: f"{root_dataset.id}-{idx}"
+        self.source_indices = sorted(source_indices)
+
+        # the id(s) of the parent record(s) from which this DataRecord is derived
+        self.parent_ids = parent_ids
+
+        # store the cardinality index
+        self.cardinality_idx = cardinality_idx
+
+        # indicator variable which may be flipped by filter operations to signal when a record has been filtered out
+        self.passed_operator = True
+
+        # NOTE: Record ids are hashed based on:
+        # 0. their schema (keys)
+        # 1. their parent record id(s) (or source_indices if there is no parent record)
+        # 2. their index in the fan out (if this is in a one-to-many operation)
+        #
+        # We currently do NOT hash just based on record content (i.e. schema (key, value) pairs)
+        # because multiple outputs for a given operation may have the exact same
+        # schema (key, value) pairs.
+        #
+        # We may revisit this hashing scheme in the future.
+
+        # unique identifier for the record
+        id_str = (
+            str(schema) + str(parent_ids) if parent_ids is not None else str(self.source_indices)
+            if cardinality_idx is None
+            else str(schema) + str(cardinality_idx) + str(parent_ids) if parent_ids is not None else str(self.source_indices)
+        )
+        # TODO(Jun): build-in id should has a special name, the current self.id is too general which would conflict with user defined schema too easily.
+        # the options: built_in_id, generated_id
+        self.id = hash_for_id(id_str)
+
+
+    def __setattr__(self, name: str, value: Any, /) -> None:
+        if name in ["schema", "field_types", "field_values", "source_indices", "parent_ids", "cardinality_idx", "passed_operator", "id"]:
+            super().__setattr__(name, value)
+        else:
+            self.field_values[name] = value
+
+
+    def __getattr__(self, name: str) -> Any:
+        if name == "field_values":
+            pass
+        elif name in self.field_values:
+            return self.field_values[name]
+        else:
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+
+    def __getitem__(self, field: str) -> Any:
+        return self.__getattr__(field)
+
+
+    def __setitem__(self, field: str, value: Any) -> None:
+        self.__setattr__(field, value)
+
+
+    def __str__(self, truncate: int | None = 15) -> str:
+        if truncate is not None:
+            items = (f"{k}={str(v)[:truncate]!r}{'...' if len(str(v)) > truncate else ''}" for k, v in sorted(self.field_values.items()))
+        else:
+            items = (f"{k}={v!r}" for k, v in sorted(self.field_values.items()))
+        return "{}({})".format(type(self).__name__, ", ".join(items))
+
+    def __repr__(self) -> str:
+        return self.__str__(truncate=None)
+
+    def __eq__(self, other):
+        return isinstance(other, DataRecord) and self.field_values == other.field_values and self.schema == other.schema
+
+    def __hash__(self):
+        return hash(self.to_json_str(bytes_to_str=True, sorted=True))
+
+
+    def __iter__(self):
+        yield from self.field_values.items()
+
+
+    def get_field_names(self):
+        return list(self.field_values.keys())
+
+
+    def get_field_type(self, field_name: str) -> FieldInfo:
+        return self.field_types[field_name]
+
+
+    def copy(self, include_bytes: bool = True, project_cols: list[str] | None = None):
+        # make copy of the current record
+        new_dr = DataRecord(
+            self.schema,
+            source_indices=self.source_indices,
+            parent_ids=self.parent_ids,
+            cardinality_idx=self.cardinality_idx,
+        )
+
+        # copy the passed_operator attribute
+        new_dr.passed_operator = self.passed_operator
+
+        # get the set of fields to copy from the parent record
+        copy_field_names = project_cols if project_cols is not None else self.get_field_names()
+        copy_field_names = [field.split(".")[-1] for field in copy_field_names]
+
+        # copy field types and values from the parent
+        for field_name in copy_field_names:
+            field_type = self.get_field_type(field_name)
+            field_value = self[field_name]
+            if (
+                not include_bytes
+                and isinstance(field_value, bytes)
+                or (isinstance(field_value, list) and len(field_value) > 0 and isinstance(field_value[0], bytes))
+            ):
+                continue
+
+            # set field and value
+            new_dr.field_types[field_name] = field_type
+            new_dr[field_name] = field_value
+
+        return new_dr
+
+
+    @staticmethod
+    def from_parent(
+        schema: BaseModel,
+        parent_record: DataRecord,
+        project_cols: list[str] | None = None,
+        cardinality_idx: int | None = None,
+    ) -> DataRecord:
+        # if project_cols is None, then the new schema is a union of the provided schema and parent_record.schema;
+        # if project_cols is an empty list, then the new schema is simply the provided schema
+        # otherwise, it's a ProjectSchema
+        new_schema = None
+        if project_cols is None:
+            new_schema = union_schemas([schema, parent_record.schema])
+        elif project_cols == []:
+            new_schema = schema
+        else:
+            new_schema = union_schemas([schema, parent_record.schema])
+            new_schema = project(new_schema, project_cols)
+
+        # make new record which has parent_record as its parent (and the same source_indices)
+        new_dr = DataRecord(
+            new_schema,
+            source_indices=parent_record.source_indices,
+            parent_ids=[parent_record.id],
+            cardinality_idx=cardinality_idx,
+        )
+
+        # get the set of fields and field descriptions to copy from the parent record
+        copy_field_names = project_cols if project_cols is not None else parent_record.get_field_names()
+        copy_field_names = [field.split(".")[-1] for field in copy_field_names]
+
+        # copy fields from the parent
+        for field_name in copy_field_names:
+            new_dr.field_types[field_name] = parent_record.get_field_type(field_name)
+            new_dr[field_name] = parent_record[field_name]
+
+        return new_dr
+
+
+    @staticmethod
+    def from_agg_parents(
+        schema: BaseModel,
+        parent_records: DataRecordSet,
+        cardinality_idx: int | None = None,
+    ) -> DataRecord:
+        # flatten source indices from all parents
+        source_indices = [
+            source_idx
+            for parent_record in parent_records
+            for source_idx in parent_record.source_indices
+        ]
+
+        # make new record which has all parent records as its parents
+        return DataRecord(
+            schema,
+            source_indices=source_indices,
+            parent_ids=[parent_record.id for parent_record in parent_records],
+            cardinality_idx=cardinality_idx,
+        )
+
+    @staticmethod
+    def from_join_parents(
+        schema: BaseModel,
+        left_parent_record: DataRecord,
+        right_parent_record: DataRecord,
+        project_cols: list[str] | None = None,
+        cardinality_idx: int = None,
+    ) -> DataRecord:
+        # make new record which has left and right parent record as its parents
+        new_dr = DataRecord(
+            schema,
+            source_indices=list(left_parent_record.source_indices) + list(right_parent_record.source_indices),
+            parent_ids=[left_parent_record.id, right_parent_record.id],
+            cardinality_idx=cardinality_idx,
+        )
+
+        # get the set of fields and field descriptions to copy from the parent record(s)
+        left_copy_field_names = (
+            left_parent_record.get_field_names()
+            if project_cols is None
+            else [col for col in project_cols if col in left_parent_record.get_field_names()]
+        )
+        right_copy_field_names = (
+            right_parent_record.get_field_names()
+            if project_cols is None
+            else [col for col in project_cols if col in right_parent_record.get_field_names()]
+        )
+        left_copy_field_names = [field.split(".")[-1] for field in left_copy_field_names]
+        right_copy_field_names = [field.split(".")[-1] for field in right_copy_field_names]
+
+        # copy fields from the parents
+        for field_name in left_copy_field_names:
+            new_dr.field_types[field_name] = left_parent_record.get_field_type(field_name)
+            new_dr[field_name] = left_parent_record[field_name]
+
+        for field_name in right_copy_field_names:
+            new_field_name = field_name
+            if field_name in left_copy_field_names:
+                new_field_name = f"{field_name}_right"
+            new_dr.field_types[new_field_name] = right_parent_record.get_field_type(field_name)
+            new_dr[new_field_name] = right_parent_record[field_name]
+
+        return new_dr
+
+
+    # TODO: unused outside of unit tests
+    @staticmethod
+    def from_df(df: pd.DataFrame, schema: BaseModel | None = None) -> list[DataRecord]:
+        """Create a list of DataRecords from a pandas DataFrame
+        
+        Args:
+            df (pd.DataFrame): Input DataFrame
+            schema (BaseModel, optional): Schema for the DataRecords. If None, will be derived from DataFrame  
+        
+        Returns:
+            list[DataRecord]: List of DataRecord instances
+        """
+        if df is None:
+            raise ValueError("DataFrame is None!")
+
+        # create schema if one isn't provided
+        if schema is None:
+            schema = create_schema_from_df(df)
+
+        # create an id for the dataset from the schema
+        dataset_id = hash_for_serialized_dict({
+            k: {"annotation": str(v.annotation), "default": str(v.default), "description": v.description}
+            for k, v in schema.model_fields.items()
+        })
+
+        # create records
+        records = []
+        for idx, row in df.iterrows():
+            row_dict = row.to_dict()
+            record = DataRecord(schema=schema, source_indices=[f"{dataset_id}-{idx}"])
+            record.field_values = row_dict
+            record.field_types = {field_name: schema.model_fields[field_name] for field_name in row_dict}
+            records.append(record)
+
+        return records
+
+    @staticmethod
+    def to_df(records: list[DataRecord], project_cols: list[str] | None = None) -> pd.DataFrame:
+        if len(records) == 0:
+            return pd.DataFrame()
+
+        fields = records[0].get_field_names()
+        if project_cols is not None and len(project_cols) > 0:
+            fields = [field for field in fields if field in project_cols]
+
+        # convert Context --> str
+        for record in records:
+            for k in fields:
+                if isinstance(record[k], context.Context):
+                    record[k] = record[k].description
+
+        return pd.DataFrame([
+            {k: record[k] for k in fields}
+            for record in records
+        ])
+
+    def to_json_str(self, include_bytes: bool = True, bytes_to_str: bool = False, project_cols: list[str] | None = None, sorted: bool = False):
+        """Return a JSON representation of this DataRecord"""
+        record_dict = self.to_dict(include_bytes, bytes_to_str, project_cols, sorted)
+        return json.dumps(record_dict, indent=2)
+
+    def to_dict(self, include_bytes: bool = True, bytes_to_str: bool = False, project_cols: list[str] | None = None, _sorted: bool = False, mask_filepaths: bool = False):
+        """Return a dictionary representation of this DataRecord"""
+        # TODO(chjun): In case of numpy types, the json.dumps will fail. Convert to native types.
+        # Better ways to handle this.
+        field_values = {
+            k: v.description
+            if isinstance(v, context.Context) else v
+            for k, v in self.field_values.items()
+        }
+        dct = pd.Series(field_values).to_dict()
+
+        if project_cols is not None and len(project_cols) > 0:
+            project_field_names = set(field.split(".")[-1] for field in project_cols)
+            dct = {k: v for k, v in dct.items() if k in project_field_names}
+
+        if not include_bytes:
+            for k in dct:
+                field_type = self.field_types[k]
+                if field_type.annotation in [bytes, AudioBase64, ImageBase64, list[bytes], list[ImageBase64]]:
+                    dct[k] = "<bytes>"
+
+        if bytes_to_str:
+            for k, v in dct.items():
+                if isinstance(v, bytes):
+                    dct[k] = v.decode("utf-8")
+                elif isinstance(v, list) and len(v) > 0 and any([isinstance(elt, bytes) for elt in v]):
+                    dct[k] = [elt.decode("utf-8") if isinstance(elt, bytes) else elt for elt in v]
+
+        if _sorted:
+            dct = dict(sorted(dct.items()))
+
+        if mask_filepaths:
+            for k in dct:
+                field_type = self.field_types[k]
+                if field_type.annotation in [AudioBase64, AudioFilepath, ImageBase64, ImageFilepath, ImageURL]:
+                    dct[k] = "<bytes>"
+
+        return dct
+
+
+class DataRecordSet:
+    """
+    A DataRecordSet contains a list of DataRecords that share the same schema, same parent(s), and same source(s).
+
+    We explicitly check that this is True.
+
+    The record_op_stats could be empty if the DataRecordSet is not from executing an operator.
+    """
+    def __init__(
+            self,
+            data_records: list[DataRecord],
+            record_op_stats: list[RecordOpStats],
+            field_to_score_fn: dict[str, str | callable] | None = None,
+            input: int | DataRecord | list[DataRecord] | tuple[list[DataRecord]] | None = None,
+        ):
+        # set data_records, parent_ids, and source_indices; note that it is possible for
+        # data_records to be an empty list in the event of a failed convert
+        self.data_records = data_records
+        self.parent_ids = data_records[0].parent_ids if len(data_records) > 0 else None
+        self.source_indices = data_records[0].source_indices if len(data_records) > 0 else None
+        self.schema = data_records[0].schema if len(data_records) > 0 else None
+
+        # the input to the operator which produced the data_records; type is tuple[DataRecord] | tuple[int]
+        # - for scan operators, input is a singleton tuple[int] which wraps the source_idx, e.g.: (source_idx,)
+        # - for join operators, input is a tuple with one entry for the left input DataRecord and one entry for the right input DataRecord
+        # - for aggregate operators, input is a tuple with all the input DataRecords to the aggregation
+        # - for all other operaotrs, input is a singleton tuple[DataRecord] which wraps the single input
+        self.input = input
+
+        # set statistics for generating these records
+        self.record_op_stats = record_op_stats
+
+        # assign field_to_score_fn if provided
+        self.field_to_score_fn = {} if field_to_score_fn is None else field_to_score_fn
+
+    def get_total_cost(self) -> float:
+        return sum([record_op_stats.cost_per_record for record_op_stats in self.record_op_stats])
+
+    def get_field_to_score_fn(self) -> dict[str, str | callable]:
+        return self.field_to_score_fn
+
+    def __getitem__(self, slice) -> DataRecord | list[DataRecord]:
+        return self.data_records[slice]
+
+    def __len__(self) -> int:
+        return len(self.data_records)
+
+    def __iter__(self) -> Generator[DataRecord]:
+        yield from self.data_records
+
+
+class DataRecordCollection:
+    """
+    A DataRecordCollection contains a list of DataRecords.
+
+    This is a wrapper class for list[DataRecord] to support more advanced features for output of execute().
+
+    The difference between DataRecordSet and DataRecordCollection 
+
+    Goal: 
+        DataRecordSet is a set of DataRecords that share the same schema, same parents, and same sources.
+        DataRecordCollection is a general wrapper for list[DataRecord].
+    
+    Usage:
+        DataRecordSet is used for the output of executing an operator.
+        DataRecordCollection is used for the output of executing a query, we definitely could extend it to support more advanced features for output of execute().
+    """
+    # TODO(Jun): consider to have stats_manager class to centralize stats management.
+    def __init__(self, data_records: list[DataRecord], execution_stats: ExecutionStats | None = None, plan_stats: PlanStats | None = None):
+        self.data_records = data_records
+        self.execution_stats = execution_stats
+        self.plan_stats = plan_stats
+        self.executed_plans = self._get_executed_plans()
+
+    def __iter__(self) -> Generator[DataRecord]:
+        """Allow iterating directly over the data records"""
+        yield from self.data_records
+
+    def __len__(self):
+        """Return the number of records in the collection"""
+        return len(self.data_records)
+
+    def to_df(self, cols: list[str] | None = None):
+        return DataRecord.to_df(self.data_records, cols)
+
+    def _get_executed_plans(self):
+        if self.plan_stats is not None:
+            return [self.plan_stats.plan_str]
+        elif self.execution_stats is not None:
+            return list(self.execution_stats.plan_strs.values())
+        else:
+            return None

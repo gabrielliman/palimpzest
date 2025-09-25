@@ -1,0 +1,69 @@
+docs/site/
+*.zip
+.cache/
+.env
+build/*
+docs/build/*
+docs/source/generated/*
+dist/*
+.vscode/*
+.chroma
+.chroma-biodex
+.chroma-mmqa
+.ragatouille
+plots/
+paper-imgs/
+
+# testdata folders and archive files
+testdata/enron-tiny.csv
+testdata/*/
+testdata/*.tar.gz
+
+# python artifacts
+*.egg-info
+**/__pycache__/
+
+# other
+.DS_Store
+
+# logs
+*.log
+
+# virtual environment(s)
+venv/
+
+# tmp
+testdata/maildir/
+testdata/real-estate-eval-100.tar
+
+# jupyter
+.ipynb_checkpoints/
+
+# evaluation
+old-eval-results/
+eval-results/
+
+testdata/enron-eval/*.txt
+
+# your zed using open source contributor who only installs in a virtual environment
+.venv
+.zed
+pyrightconfig.json
+
+myenv/
+
+# abacus-research data
+abacus-research/cuad-data/*
+abacus-research/opt-profiling-data/*
+abacus-research/parse-answer-errors/*
+
+
+
+abacus-research/data
+abacus-research/*errors
+abacus-research/var
+abacus-research/abacus-data.tar.gz
+
+enron-tiny
+real-estate-eval-5
+*.tar.gz
