@@ -8,7 +8,7 @@ export HF_HOME="/scratch/global/huggingface_cache/huggingface"
 # Paths and ports
 MODEL1_NAME="Qwen/Qwen3-4B"
 MODEL2_NAME="Qwen/Qwen3-4B"
-MODEL3_NAME="Qwen/Qwen3-4B"
+# MODEL3_NAME="Qwen/Qwen3-4B"
 # "meta-llama/Llama-3.1-8B-Instruct"
 # "Qwen/Qwen2.5-1.5B-Instruct"
 # "Qwen/Qwen2.5-0.5B-Instruct"
@@ -18,9 +18,9 @@ MODEL3_NAME="Qwen/Qwen3-4B"
 EMBEDDING_PORT=8001
 MODEL1_PORT=8105
 MODEL2_PORT=8106
-MODEL3_PORT=8107
+# MODEL3_PORT=8007
 
-LOG_DIR="/home/nunes/Abacus/palimpzest/abacus-research/var/logs"
+LOG_DIR="./var/logs"
 
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate lotus

@@ -11,13 +11,13 @@ from contextlib import asynccontextmanager
 from fastapi.responses import StreamingResponse
 
 MODEL_ROUTES = {
-    "Qwen/Qwen3-4B": ["http://localhost:8105"]#, "http://localhost:8106"],
+    "Qwen/Qwen3-4B": ["http://localhost:8105", "http://localhost:8106"],
 }
 
 #passe os logs dos modelos que estiverem rodando para um arquivo e coloque aqui 
 BACKEND_LOGS = {
-    "http://localhost:8105": "/home/nunes/Abacus/palimpzest/abacus-research/var/logs/saida_VLLM_8105.txt",
-    # "http://localhost:8106": "/home/nunes/Abacus/palimpzest/abacus-research/var/logs/saida_VLLM_8106.txt",
+    "http://localhost:8105": "./var/logs/saida_VLLM_8105.txt",
+    "http://localhost:8106": "./var/logs/saida_VLLM_8106.txt",
 }
 
 BACKEND_METRICS = {
