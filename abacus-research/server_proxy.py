@@ -10,23 +10,32 @@ from contextlib import asynccontextmanager
 
 # Map Hugging Face model names -> vLLM backends
 MODEL_ROUTES = {
-    "Qwen/Qwen2.5-1.5B-Instruct": ["http://localhost:8002"],
-    "meta-llama/Llama-3.1-8B-Instruct": ["http://localhost:8003"],
+    "Qwen/Qwen3-4B": ["http://localhost:8002"],
+    # "meta-llama/Llama-3.1-8B-Instruct": ["http://localhost:8003"],
     # "Qwen/Qwen2.5-3B-Instruct": ["http://localhost:8004"],
+    "Qwen/Qwen2.5-0.5B-Instruct": ["http://localhost:8005"],
+    "Qwen/Qwen3-0.6B": ["http://localhost:8006"],
+    # "google/gemma-3-270m": ["http://localhost:8007"],
+    # "Qwen/Qwen3-4B-Instruct-2507": ["http://localhost:8007"],
 }
-
 # Configuração de uso de GPU por backend
 BACKEND_GPU_USAGE = {
-    "http://localhost:8002": {"active": 40, "sleep": 4},   # Qwen-1.5B
-    "http://localhost:8003": {"active": 85, "sleep": 5},   # LLaMA-8B
+    "http://localhost:8002": {"active": 50, "sleep": 4},   # Qwen-4B
+    # "http://localhost:8003": {"active": 85, "sleep": 5},   # LLaMA-8B
     # "http://localhost:8004": {"active": 60, "sleep": 5}, # outros modelos
+    "http://localhost:8005": {"active": 25, "sleep": 4},   
+    "http://localhost:8006": {"active": 25, "sleep": 4},   # Qwen3-0.6B
+    # "http://localhost:8007": {"active": 25, "sleep": 4},   # Gemma-3-270m
 }
 
 # Map backends -> log file path
 BACKEND_LOGS = {
     "http://localhost:8002": "/home/nunes/Abacus/palimpzest/abacus-research/var/logs/saida_VLLM_8002.txt",
-    "http://localhost:8003": "/home/nunes/Abacus/palimpzest/abacus-research/var/logs/saida_VLLM_8003.txt",
-    "http://localhost:8004": "/home/nunes/Abacus/palimpzest/abacus-research/var/logs/saida_VLLM_8004.txt",
+    # "http://localhost:8003": "/home/nunes/Abacus/palimpzest/abacus-research/var/logs/saida_VLLM_8003.txt",
+    # "http://localhost:8004": "/home/nunes/Abacus/palimpzest/abacus-research/var/logs/saida_VLLM_8004.txt",
+    "http://localhost:8005": "/home/nunes/Abacus/palimpzest/abacus-research/var/logs/saida_VLLM_8005.txt",
+    "http://localhost:8006": "/home/nunes/Abacus/palimpzest/abacus-research/var/logs/saida_VLLM_8006.txt",
+    # "http://localhost:8007": "/home/nunes/Abacus/palimpzest/abacus-research/var/logs/saida_VLLM_8007.txt",
 }
 
 # Metrics dictionary with thread safety
@@ -50,9 +59,12 @@ QUEUE_METRICS = {model: {"size": 0} for model in MODEL_ROUTES}
 queue_lock = Lock()
 
 BACKEND_MAX_WORKERS = {
-    "http://localhost:8002": 30,   # Qwen-1.5B suporta menos workers
-    "http://localhost:8003": 5,   # LLaMA-8B suporta mais
+    "http://localhost:8002": 30,   # Qwen-4B suporta menos workers
+    # "http://localhost:8003": 30,   # LLaMA-8B suporta mais
     # "http://localhost:8004": 4,   # outros
+    "http://localhost:8005": 30,   # GPT2
+    "http://localhost:8006": 30,   # Qwen3-0.6B
+    # "http://localhost:8007": 30,   # Gemma-3-270m
 }
 
 
@@ -179,8 +191,8 @@ async def wake_backend_if_needed(url: str):
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            print(f"[INFO] Acordando backend {url} (somente pesos)...")
-            await client.post(f"{url}/wake_up", json={"tags": ["weights"]})
+            print(f"[INFO] Acordando backend {url}")
+            await client.post(f"{url}/wake_up")
 
         # Poll até ficar pronto
         for _ in range(30):  # até 30s

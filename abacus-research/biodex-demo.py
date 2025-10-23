@@ -370,17 +370,28 @@ if __name__ == "__main__":
     models = [
         Model.VLLM_QWEN_2_5_1_5B_INSTRUCT,
         # Model.VLLM_QWEN_2_5_3B_INSTRUCT,
-        Model.VLLM_LLAMA_3_1_8B_INSTRUCT,
+        # Model.VLLM_LLAMA_3_1_8B_INSTRUCT,
         # Model.VLLM_DEEPSEEK_R1_DISTILL_LLAMA_8B,
-
+        Model.VLLM_QWEN_2_5_0_5B_INSTRUCT,
+        Model.VLLM_QWEN_3_0_6B,
+        Model.VLLM_GEMMA_3_270M,
     ]
 
     # execute pz plan
     config = pz.QueryProcessorConfig(
-        available_models=models,
-        api_base="http://localhost:8000/v1",
+        available_models=[
+        "hosted_vllm/Qwen/Qwen3-4B",
+        # "hosted_vllm/Qwen/Qwen2.5-3B-Instruct",
+        # "hosted_vllm/meta-llama/Llama-3.1-8B-Instruct",
+        #"hosted_vllm/deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+        # "hosted_vllm/Qwen/Qwen2.5-0.5B-Instruct",
+        # "hosted_vllm/Qwen/Qwen3-0.6B",
+        # "hosted_vllm/google/gemma-3-270m",
+        # "hosted_vllm/Qwen/Qwen3-4B-Instruct-2507",
+        ],
+        api_base="http://localhost:8080/v1",
         policy=policy,
-        optimizer_strategy="pareto",
+        optimizer_strategy="none", #"pareto",
         sentinel_execution_strategy=sentinel_execution_strategy,
         execution_strategy=execution_strategy,
         use_final_op_quality=True,

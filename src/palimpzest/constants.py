@@ -42,10 +42,15 @@ class Model(str, Enum):
     GPT_4o_MINI_AUDIO_PREVIEW = "openai/gpt-4o-mini-audio-preview"
     VLLM_QWEN_1_5_0_5B_CHAT = "hosted_vllm/qwen/Qwen1.5-0.5B-Chat"
     VLLM_QWEN_2_5_1_5B_INSTRUCT = "hosted_vllm/Qwen/Qwen2.5-1.5B-Instruct"
+    VLLM_QWEN_3_4B = "hosted_vllm/Qwen/Qwen3-4B"
     VLLM_QWEN_2_5_3B_INSTRUCT = "hosted_vllm/Qwen/Qwen2.5-3B-Instruct"
     VLLM_LLAMA_3_1_8B_INSTRUCT = "hosted_vllm/meta-llama/Llama-3.1-8B-Instruct"
     VLLM_DEEPSEEK_R1_DISTILL_LLAMA_8B = "hosted_vllm/deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
     VLLM_NOMIC_EMBED_TEXT_V1 = "nomic-ai/nomic-embed-text-v1"
+    VLLM_QWEN_2_5_0_5B_INSTRUCT = "hosted_vllm/Qwen/Qwen2.5-0.5B-Instruct"
+    VLLM_QWEN_3_0_6B = "hosted_vllm/Qwen/Qwen3-0.6B"
+    VLLM_QWEN_3_4B_INSTRUCT_2507 = "hosted_vllm/Qwen/Qwen3-4B-Instruct-2507"
+    VLLM_GEMMA_3_270M = "hosted_vllm/google/gemma-3-270m"
     
 
     def __repr__(self):
@@ -622,6 +627,17 @@ VLLM_QWEN_2_5_1_5B_INSTRUCT_MODEL_CARD = {
     "overall": 30.0, # TODO: fill-in with a better estimate
 }
 
+
+VLLM_QWEN_3_4B_MODEL_CARD = {
+    ##### Cost in USD #####
+    "usd_per_input_token": 2.0 / 1e6,
+    "usd_per_output_token": 1.0 / 1e6,
+    ##### Time #####
+    "seconds_per_output_token": 0.1000, # TODO: fill-in with a better estimate
+    ##### Agg. Benchmark #####
+    "overall": 30.0, # TODO: fill-in with a better estimate
+}
+
 VLLM_QWEN_2_5_3B_INSTRUCT_MODEL_CARD = {
     ##### Cost in USD #####
     "usd_per_input_token": 4.0 / 1e6,
@@ -652,6 +668,45 @@ VLLM_LLAMA_3_1_8B_INSTRUCT_MODEL_CARD = {
             "overall": 30.0, # TODO: fill-in with a better estimate
 }
 
+VLLM_QWEN_2_5_0_5B_INSTRUCT_MODEL_CARD = {
+            ##### Cost in USD #####
+            "usd_per_input_token": 1.0 / 1e6,
+            "usd_per_output_token": 1.0 / 1e6,
+            ##### Time #####
+            "seconds_per_output_token": 0.1000, # TODO: fill-in with a better estimate
+            ##### Agg. Benchmark #####
+            "overall": 10.0, # TODO: fill-in with a better estimate
+}
+
+VLLM_QWEN_3_0_6B_MODEL_CARD = {
+            ##### Cost in USD #####
+            "usd_per_input_token": 0.0 / 1e6,
+            "usd_per_output_token": 0.0 / 1e6,
+            ##### Time #####
+            "seconds_per_output_token": 0.1000, # TODO: fill-in with a better estimate
+            ##### Agg. Benchmark #####
+            "overall": 30.0, # TODO: fill-in with a better estimate
+}
+
+VLLM_QWEN_3_4B_INSTRUCT_2507_MODEL_CARD = {
+            ##### Cost in USD #####
+            "usd_per_input_token": 0.0 / 1e6,
+            "usd_per_output_token": 0.0 / 1e6,
+            ##### Time #####
+            "seconds_per_output_token": 0.1000, # TODO: fill-in with a better estimate
+            ##### Agg. Benchmark #####
+            "overall": 30.0, # TODO: fill-in with a better estimate
+}
+
+VLLM_GEMMA_3_270M_MODEL_CARD = {
+            ##### Cost in USD #####
+            "usd_per_input_token": 0.0 / 1e6,
+            "usd_per_output_token": 0.0 / 1e6,
+            ##### Time #####
+            "seconds_per_output_token": 0.1000, # TODO: fill-in with a better estimate
+            ##### Agg. Benchmark #####
+            "overall": 30.0, # TODO: fill-in with a better estimate
+}
 
 VLLM_NOMIC_EMBED_TEXT_V1_MODEL_CARD = {
             ##### Cost in USD #####
@@ -695,8 +750,13 @@ MODEL_CARDS = {
     Model.GOOGLE_GEMINI_2_5_PRO.value: GEMINI_2_5_PRO_MODEL_CARD,
     Model.LLAMA_4_MAVERICK.value: LLAMA_4_MAVERICK_MODEL_CARD,
     Model.VLLM_QWEN_2_5_1_5B_INSTRUCT.value : VLLM_QWEN_2_5_1_5B_INSTRUCT_MODEL_CARD,
+    Model.VLLM_QWEN_3_4B.value : VLLM_QWEN_3_4B_MODEL_CARD,
     Model.VLLM_QWEN_2_5_3B_INSTRUCT.value : VLLM_QWEN_2_5_3B_INSTRUCT_MODEL_CARD,
     Model.VLLM_LLAMA_3_1_8B_INSTRUCT.value : VLLM_LLAMA_3_1_8B_INSTRUCT_MODEL_CARD,
     Model.VLLM_NOMIC_EMBED_TEXT_V1.value : VLLM_NOMIC_EMBED_TEXT_V1_MODEL_CARD,
     Model.VLLM_DEEPSEEK_R1_DISTILL_LLAMA_8B.value : VLLM_DEEPSEEK_R1_DISTILL_LLAMA_8B_MODEL_CARD,
+    Model.VLLM_QWEN_2_5_0_5B_INSTRUCT.value : VLLM_QWEN_2_5_0_5B_INSTRUCT_MODEL_CARD,
+    Model.VLLM_QWEN_3_0_6B.value : VLLM_QWEN_3_0_6B_MODEL_CARD,
+    Model.VLLM_QWEN_3_4B_INSTRUCT_2507.value : VLLM_QWEN_3_4B_INSTRUCT_2507_MODEL_CARD,
+    Model.VLLM_GEMMA_3_270M.value : VLLM_GEMMA_3_270M_MODEL_CARD,
 }
